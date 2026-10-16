@@ -4,7 +4,7 @@ Agent-oriented Rust CLI for Notion Calendar automation.
 
 `ncal` wraps the Notion Calendar HTTP surface characterized in this repo, with stable command output for humans and scripts. It prefers safe, documented behavior where available and labels the unpublished Notion Calendar endpoints as version-fragile.
 
-[![CI](https://github.com/OlegHQ/ncal/actions/workflows/ci.yml/badge.svg)](https://github.com/OlegHQ/ncal/actions/workflows/ci.yml)
+[![CI](https://github.com/olegpustovit/ncal/actions/workflows/ci.yml/badge.svg)](https://github.com/olegpustovit/ncal/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-v0.1.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange)
@@ -16,7 +16,7 @@ Prebuilt binaries are published on GitHub Releases for macOS and Linux.
 ### Homebrew - macOS and Linux
 
 ```sh
-brew install OlegHQ/tap/ncal
+brew install olegpustovit/tap/ncal
 ```
 
 Upgrade with:
@@ -28,12 +28,12 @@ brew upgrade ncal
 ### Install Script - macOS and Linux
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/OlegHQ/ncal/releases/latest/download/ncal-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/olegpustovit/ncal/releases/latest/download/ncal-installer.sh | sh
 ```
 
 ### Prebuilt Archives
 
-Download an archive from the [latest release](https://github.com/OlegHQ/ncal/releases/latest), extract it, and put `ncal` on your `PATH`.
+Download an archive from the [latest release](https://github.com/olegpustovit/ncal/releases/latest), extract it, and put `ncal` on your `PATH`.
 
 Supported targets:
 
@@ -168,7 +168,7 @@ The pre-commit and pre-push hooks auto-run `cargo fmt` and `cargo clippy --fix`.
 
 ## Releasing
 
-Releases are automated with [cargo-dist](https://github.com/axodotdev/cargo-dist). Pushing a `v*` tag builds macOS and Linux binaries, creates GitHub Release assets, publishes checksums and the installer script, and pushes the Homebrew formula to `OlegHQ/homebrew-tap`.
+Releases are automated with [cargo-dist](https://github.com/axodotdev/cargo-dist). Pushing a `v*` tag builds macOS and Linux binaries, creates GitHub Release assets, publishes checksums and the installer script, and pushes the Homebrew formula to `olegpustovit/homebrew-tap`.
 
 Maintainer commands:
 
@@ -184,7 +184,7 @@ Homebrew publishing requires a repo secret:
 gh secret set HOMEBREW_TAP_TOKEN
 ```
 
-The token must have write access to `OlegHQ/homebrew-tap`.
+The token must have write access to `olegpustovit/homebrew-tap`.
 
 ## License
 
