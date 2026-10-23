@@ -1,0 +1,2 @@
+# Empty configuration uses defaults. auth status takes fictional values from
+# run.sh's environment before consulting any credential store.

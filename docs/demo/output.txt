@@ -1,0 +1,8 @@
+Synthetic environment values; no sign-in or calendar API request.
+Source:         env
+User ID:        demo-user
+Token expires:  (unknown)
+Refresh token:  no
+
+JSON output for the same local status:
+{"accessTokenExpiresAt":"","hasRefreshToken":false,"source":"env","userId":"demo-user"}
