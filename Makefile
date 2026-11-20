@@ -13,7 +13,7 @@ ifeq ($(shell uname),Darwin)
   export LIBRARY_PATH := $(shell xcrun --show-sdk-path 2>/dev/null)/usr/lib
 endif
 
-.PHONY: help all build install uninstall check lint fmt fmt-check fix test ci hooks clean release-local dist-plan minor patch ship-minor ship-patch check-clean _ship
+.PHONY: check-cli-fixtures help all build install uninstall check lint fmt fmt-check fix test ci hooks clean release-local dist-plan minor patch ship-minor ship-patch check-clean _ship
 
 .DEFAULT_GOAL := help
 
@@ -67,6 +67,9 @@ fix:
 
 test:
 	$(CARGO) t --workspace
+
+check-cli-fixtures:
+	python3 scripts/check-cli-fixtures.py
 
 ci: fmt-check lint test
 

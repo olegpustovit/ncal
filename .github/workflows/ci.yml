@@ -32,6 +32,17 @@ jobs:
       - run: cargo xtask check-boundary
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
+  cli-compatibility:
+    name: CLI fixture compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: make check-cli-fixtures
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
