@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Use a supported macOS runner for Apple Silicon release binaries.
+- Check CLI outputs and exit codes against the pre-extraction fixtures.
+
 ## 0.2.0
 
 - Add the reusable ncal-core use cases and the transport-independent ncal-mcp tools.
