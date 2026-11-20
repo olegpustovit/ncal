@@ -47,3 +47,17 @@
 
 #### Notes
 -
+
+## 2026-11-20 — library and MCP integration spikes
+
+- **S4, confirmed in rmcp 3.10.0 source:** Streamable HTTP inserts
+  `http::request::Parts` into the MCP request extensions, including on
+  the stateless path. An HTTP adapter can read its principal through
+  `ctx.extensions.get::<http::request::Parts>()` and
+  `parts.extensions.get::<Principal>()`. Stdio does not provide HTTP
+  parts. The local credential source can ignore the request context.
+  A shared-handler transport test is still needed.
+- **S2, unknown:** The documented refresh response returns a refresh token.
+  The available evidence does not establish whether the previous token
+  remains usable or whether separate sign-ins have independent refresh chains.
+  Verify with a disposable calendar session before recommending shared use.

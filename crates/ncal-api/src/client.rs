@@ -8,6 +8,8 @@ use url::Url;
 use crate::auth::Credentials;
 use crate::error::{ApiError, ApiErrorBody};
 
+/// Runs synchronously when credentials rotate. Callbacks should not block.
+/// An async consumer can receive the new credentials through a channel.
 pub type OnTokenRefresh = Arc<dyn Fn(&Credentials) + Send + Sync>;
 
 /// Mutable token state, refreshed transparently.

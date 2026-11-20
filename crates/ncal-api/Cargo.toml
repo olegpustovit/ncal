@@ -10,20 +10,24 @@ readme = "../../README.md"
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = ["local-credentials"]
+local-credentials = ["dep:keyring", "dep:rusty-leveldb", "dep:tempfile"]
+
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "gzip", "rustls-tls"] }
-rusty-leveldb = "1.0"
+reqwest = { version = "0.13", default-features = false, features = ["json", "gzip", "rustls", "query"] }
+rusty-leveldb = { version = "1.0", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tempfile = "3"
+tempfile = { version = "3", optional = true }
 thiserror = "2"
 tokio = { version = "1", features = ["sync"] }
 tracing = "0.1"
 url = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-keyring = { version = "3", features = ["apple-native"] }
+keyring = { version = "3", optional = true, features = ["apple-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-keyring = { version = "3", features = ["linux-native"] }
+keyring = { version = "3", optional = true, features = ["linux-native"] }

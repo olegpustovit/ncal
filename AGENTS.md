@@ -51,6 +51,17 @@ From the installed bundle and full RE (static + live traffic):
 | `research/notion-calendar-api-contract-spec.md` | Full API contract (85 RPCs, all schemas) |
 | `research/artifacts/` | Gitignored: extracted ASAR trees, web bundles, mitmproxy captures |
 
+## Library boundary
+
+See [ncal-library-boundary](.agents/skills/ncal-library-boundary/SKILL.md) before adding capabilities or dependencies.
+
+| Crate | Responsibility |
+|---|---|
+| `ncal-api` | Calendar RPC client, wire types, optional local credential sources |
+| `ncal-core` (planned) | Typed calendar use cases and actionable errors |
+| `ncal-mcp` (planned) | Transport-independent MCP tools |
+| `ncal` | Local CLI, credential management, and stdio transport |
+
 ## Environment conventions
 
 - `NOTION_CALENDAR_APP` — override app path; default in scripts is `/Applications/Notion Calendar.app`.

@@ -71,10 +71,12 @@ impl CredentialSource for EnvVarSource {
 }
 
 /// Read tokens previously stored by this CLI in the OS credential store.
+#[cfg(feature = "local-credentials")]
 pub struct KeychainSource {
     pub service: String,
 }
 
+#[cfg(feature = "local-credentials")]
 impl CredentialSource for KeychainSource {
     fn name(&self) -> &'static str {
         "keychain"
@@ -120,10 +122,12 @@ impl CredentialSource for FileSource {
 }
 
 /// Chromium LocalStorage LevelDB path under the Notion Calendar app support directory.
+#[cfg(feature = "local-credentials")]
 pub struct DesktopAppSource {
     pub app_support_dir: PathBuf,
 }
 
+#[cfg(feature = "local-credentials")]
 impl DesktopAppSource {
     pub fn macos_default() -> Self {
         let home = std::env::var("HOME").unwrap_or_default();
@@ -153,8 +157,10 @@ impl DesktopAppSource {
     }
 }
 
+#[cfg(feature = "local-credentials")]
 const LEVELDB_KEY_SUFFIX: &[u8] = b"_https://calendar.notion.so\x00\x01user.auth.currentUser";
 
+#[cfg(feature = "local-credentials")]
 impl CredentialSource for DesktopAppSource {
     fn name(&self) -> &'static str {
         "desktop-app"
@@ -209,6 +215,7 @@ impl CredentialSource for DesktopAppSource {
     }
 }
 
+#[cfg(feature = "local-credentials")]
 fn copy_leveldb_tree(src: &Path, dst: &Path) -> Result<(), AuthError> {
     let io_err = |e| AuthError::Io {
         path: src.display().to_string(),
@@ -243,6 +250,7 @@ pub fn resolve_credentials(sources: &[&dyn CredentialSource]) -> Result<Credenti
     Err(AuthError::NoCredentials)
 }
 
+#[cfg(feature = "local-credentials")]
 pub fn store_credentials(service: &str, creds: &Credentials) -> Result<(), AuthError> {
     let entry = keyring::Entry::new(service, "default").map_err(|e| AuthError::Keychain {
         operation: "open",
@@ -282,6 +290,7 @@ pub fn store_credentials_file(path: &Path, creds: &Credentials) -> Result<(), Au
     Ok(())
 }
 
+#[cfg(feature = "local-credentials")]
 pub fn delete_credentials(service: &str) -> Result<(), AuthError> {
     let entry = keyring::Entry::new(service, "default").map_err(|e| AuthError::Keychain {
         operation: "open",
