@@ -10,6 +10,7 @@ use ncal_api::error::ApiError;
 pub struct Defaults {
     pub account: Option<String>,
     pub calendar: Option<String>,
+    pub timezone: Option<String>,
 }
 
 pub struct Ctx<'a> {
@@ -29,7 +30,13 @@ pub enum CoreError {
     #[error("{0}")]
     Selection(String),
     #[error(transparent)]
-    Api(#[from] ApiError),
+    Api(Box<ApiError>),
+}
+
+impl From<ApiError> for CoreError {
+    fn from(error: ApiError) -> Self {
+        Self::Api(Box::new(error))
+    }
 }
 
 /// Extract successful calendars from batch results, collecting warnings for the caller.
@@ -83,7 +90,7 @@ async fn resolve_account(
     hint: Option<&str>,
     notes: &mut Vec<String>,
 ) -> Result<(String, Provider), CoreError> {
-    let user = get_user(client).await.map_err(CoreError::Api)?;
+    let user = get_user(client).await.map_err(CoreError::from)?;
     let accounts = user.accounts.unwrap_or_default();
 
     if let Some(q) = hint {
@@ -131,7 +138,7 @@ async fn resolve_account(
 pub async fn build_all_account_queries(
     client: &NotionCalendarClient,
 ) -> Result<Resolved<Vec<CalendarTarget>>, CoreError> {
-    let user = get_user(client).await.map_err(CoreError::Api)?;
+    let user = get_user(client).await.map_err(CoreError::from)?;
     let accounts = user.accounts.unwrap_or_default();
     if accounts.is_empty() {
         return Err(CoreError::Selection(
@@ -149,7 +156,7 @@ pub async fn build_all_account_queries(
         .collect();
     let results = get_calendar_lists(client, &GetCalendarListsRequest { queries })
         .await
-        .map_err(CoreError::Api)?;
+        .map_err(CoreError::from)?;
     let mut notes = Vec::new();
     let calendars = flatten_calendar_results(results, &mut notes);
     if calendars.is_empty() {
@@ -193,7 +200,7 @@ async fn auto_resolve_calendar(
     };
     let results = get_calendar_lists(client, &req)
         .await
-        .map_err(CoreError::Api)?;
+        .map_err(CoreError::from)?;
     let calendars = flatten_calendar_results(results, notes);
 
     if let Some(primary) = calendars.iter().find(|c| c.primary == Some(true)) {

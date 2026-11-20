@@ -4,6 +4,7 @@ mod contacts;
 pub(crate) mod context;
 mod events;
 mod holds;
+mod mcp;
 mod user;
 
 use std::path::Path;
@@ -11,8 +12,9 @@ use std::path::Path;
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 
-use ncal_api::endpoints::{incremental_sync, IncrementalSyncRequest, SyncTokenInput};
+use ncal_api::endpoints::{IncrementalSyncRequest, SyncTokenInput};
 use ncal_api::types::{IncrementalSyncResponse, SyncToken};
+use ncal_core::sync;
 
 use crate::cache::{self, CacheFile};
 use crate::config::AppConfig;
@@ -70,9 +72,7 @@ pub(crate) async fn do_sync(
         sync_tokens: tokens,
         metadata: None,
     };
-    let resp = incremental_sync(client, &req)
-        .await
-        .map_err(CliError::Api)?;
+    let resp = sync(client, &req).await.map_err(CliError::Api)?;
 
     // Write tokens file (backward compat) and cache.
     write_tokens(&config.tokens_file(), &resp.sync_tokens)?;
@@ -122,6 +122,13 @@ pub enum Command {
     #[command(subcommand)]
     Preferences(user::PreferencesCmd),
 
+    /// Serve calendar tools over MCP on standard input and output.
+    Mcp {
+        /// Advertise and allow read-only tools.
+        #[arg(long)]
+        read_only: bool,
+    },
+
     /// List contacts from connected accounts.
     Contacts,
 }
@@ -141,9 +148,7 @@ pub async fn run_command(cli: &Cli, config: &AppConfig) -> Result<(), CliError> 
                     sync_tokens: tokens,
                     metadata: None,
                 };
-                let resp = incremental_sync(&client, &req)
-                    .await
-                    .map_err(CliError::Api)?;
+                let resp = sync(&client, &req).await.map_err(CliError::Api)?;
                 write_tokens(path, &resp.sync_tokens)?;
                 eprintln!(
                     "Wrote {} sync token(s) to {}.",
@@ -164,6 +169,7 @@ pub async fn run_command(cli: &Cli, config: &AppConfig) -> Result<(), CliError> 
         Command::Whoami => user::whoami(cli, config).await,
         Command::Accounts(c) => user::accounts(cli, config, c).await,
         Command::Preferences(c) => user::preferences(cli, config, c).await,
+        Command::Mcp { read_only } => mcp::run(config, *read_only).await,
         Command::Contacts => {
             contacts::run(cli, config).await?;
             if !cli.json {

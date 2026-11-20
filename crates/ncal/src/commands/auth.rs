@@ -42,6 +42,8 @@ pub enum AuthCmd {
     },
     /// Show where credentials are loaded from and token expiry.
     Status,
+    /// Export the active credentials as JSON. Treat the output as a secret.
+    Export,
     /// Force a token refresh now.
     Refresh,
     /// Remove stored CLI credentials from the OS keychain.
@@ -58,6 +60,11 @@ pub async fn run(cli: &Cli, config: &AppConfig, cmd: &AuthCmd) -> Result<(), Cli
             stdin,
         } => import_user_json(cli, config, file.as_deref(), raw_json.as_deref(), *stdin).await,
         AuthCmd::Status => status(cli, config).await,
+        AuthCmd::Export => {
+            let credentials = resolve_credentials(config)?;
+            eprintln!("warning: this output contains session credentials");
+            print_json(cli, &credentials)
+        }
         AuthCmd::Refresh => refresh(config).await,
         AuthCmd::Logout => logout(config).await,
     }

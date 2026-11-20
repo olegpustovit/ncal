@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/ncal-api", "crates/ncal-core", "crates/ncal", "xtask"]
+exclude = ["tools/t"]
+members = ["crates/ncal-api", "crates/ncal-core", "crates/ncal-mcp", "crates/ncal", "xtask"]
 
 [workspace.package]
 version = "0.1.0"

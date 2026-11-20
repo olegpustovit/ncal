@@ -17,8 +17,8 @@ pub use contacts::get_contacts;
 pub use events::{
     create_event, delete_events, get_event, get_events, update_events, CreateEventMutation,
     CreateEventRequest, DeleteEventMutation, DeleteEventsRequest, EventQuery, GetEventQuery,
-    GetEventRequest, GetEventsOk, GetEventsRequest, GetEventsResult, UpdateEventMutation,
-    UpdateEventsRequest,
+    GetEventRequest, GetEventsOk, GetEventsRequest, GetEventsResult, UpdateEventEntry,
+    UpdateEventMutation, UpdateEventsRequest,
 };
 pub use holds::{
     create_hold, create_hold_event, delete_hold, get_hold, get_hold_alias_available, get_holds,

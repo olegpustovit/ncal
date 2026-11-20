@@ -47,6 +47,15 @@ pub enum CliError {
     Json(#[from] serde_json::Error),
 }
 
+impl From<ncal_core::CoreError> for CliError {
+    fn from(error: ncal_core::CoreError) -> Self {
+        match error {
+            ncal_core::CoreError::Selection(message) => Self::Usage(message),
+            ncal_core::CoreError::Api(error) => Self::Api(*error),
+        }
+    }
+}
+
 fn exit_code_for(err: &CliError) -> u8 {
     match err {
         CliError::Usage(_) => 2,

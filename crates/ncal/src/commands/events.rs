@@ -1,14 +1,9 @@
 use clap::Subcommand;
+use ncal_core::{events as core, Ctx};
 
-use ncal_api::endpoints::{
-    create_event, delete_events, get_event, get_events, update_events, CreateEventMutation,
-    CreateEventRequest, DeleteEventMutation, DeleteEventsRequest, EventQuery, GetEventQuery,
-    GetEventRequest, GetEventsRequest, GetEventsResult, UpdateEventMutation, UpdateEventsRequest,
-};
+use ncal_api::endpoints::GetEventsResult;
 
-use super::context::{
-    authenticated_client, build_all_account_queries, parse_time_ms, resolve_context,
-};
+use super::context::{authenticated_client, defaults, parse_time_ms, render};
 use super::do_sync;
 use crate::cache;
 use crate::config::AppConfig;
@@ -301,38 +296,26 @@ async fn list(
             do_sync(config, client).await?.events
         }
     } else {
-        // Filtered path: use getEvents API with specific targets.
-        let targets =
-            if args.account.is_some() || args.calendar.is_some() || args.provider.is_some() {
-                let ctx =
-                    resolve_context(config, client, args.account, args.calendar, args.provider)
-                        .await?;
-                vec![ctx]
-            } else if config.defaults.account.is_some() || config.defaults.calendar.is_some() {
-                let ctx = resolve_context(config, client, None, None, None).await?;
-                vec![ctx]
-            } else {
-                build_all_account_queries(client).await?
-            };
-
-        let queries = targets
-            .into_iter()
-            .map(|(acct, cal, prov)| EventQuery {
-                provider: prov,
-                account_id: acct,
-                calendar_id: cal,
-                time_min,
-                time_max,
-                single_events: Some(true),
-                show_deleted: Some(args.include_deleted),
-                query: args.query.map(String::from),
-                user_time_zone: config.defaults.timezone.clone(),
-                limit: args.limit,
-            })
-            .collect();
-
-        let req = GetEventsRequest { queries };
-        let results = get_events(client, &req).await.map_err(CliError::Api)?;
+        let ctx = Ctx {
+            client,
+            defaults: &defaults(config),
+        };
+        let results = render(
+            core::list_events(
+                &ctx,
+                core::ListEvents {
+                    account: args.account.map(str::to_owned),
+                    calendar: args.calendar.map(str::to_owned),
+                    provider: args.provider.map(str::to_owned),
+                    time_min,
+                    time_max,
+                    query: args.query.map(str::to_owned),
+                    limit: args.limit,
+                    include_deleted: args.include_deleted,
+                },
+            )
+            .await,
+        )?;
         if cli.json {
             return print_json_lines(cli, &results);
         }
@@ -400,18 +383,23 @@ async fn get(
     calendar: Option<&str>,
     provider: Option<&str>,
 ) -> Result<(), CliError> {
-    let (acct, cal, prov) = resolve_context(config, client, account, calendar, provider).await?;
-    let req = GetEventRequest {
-        query: GetEventQuery {
-            provider: prov,
-            account_id: acct,
-            calendar_id: cal,
-            event_id: event_id.to_string(),
-            user_time_zone: config.defaults.timezone.clone(),
-        },
+    let ctx = Ctx {
+        client,
+        defaults: &defaults(config),
     };
-    let resp = get_event(client, &req).await.map_err(CliError::Api)?;
-    print_event_detail(cli, &resp.event)?;
+    let event = render(
+        core::get_event(
+            &ctx,
+            core::GetEvent {
+                event_id: event_id.into(),
+                account: account.map(str::to_owned),
+                calendar: calendar.map(str::to_owned),
+                provider: provider.map(str::to_owned),
+            },
+        )
+        .await,
+    )?;
+    print_event_detail(cli, &event)?;
     if !cli.json {
         hint(&[
             &format!("ncal events update {event_id} --summary <TEXT>  — update this event"),
@@ -438,30 +426,26 @@ async fn create(
     client: &ncal_api::client::NotionCalendarClient,
     args: CreateEventArgs<'_>,
 ) -> Result<(), CliError> {
-    let (acct, cal, prov) =
-        resolve_context(config, client, args.account, args.calendar, args.provider).await?;
-    let tz = config.defaults.timezone.as_deref();
-    let mut event_data = serde_json::Map::from_iter([
-        ("summary".into(), serde_json::json!(args.summary)),
-        ("start".into(), event_date_json(args.start, tz)),
-        ("end".into(), event_date_json(args.end, tz)),
-    ]);
-    if let Some(d) = args.description {
-        event_data.insert("description".into(), serde_json::json!(d));
-    }
-    if let Some(l) = args.location {
-        event_data.insert("location".into(), serde_json::json!(l));
-    }
-    let req = CreateEventRequest {
-        mutation: CreateEventMutation {
-            provider: prov,
-            account_id: acct,
-            calendar_id: cal,
-            event_data: serde_json::Value::Object(event_data),
-            send_updates: None,
-        },
+    let ctx = Ctx {
+        client,
+        defaults: &defaults(config),
     };
-    let event = create_event(client, &req).await.map_err(CliError::Api)?;
+    let event = render(
+        core::create_event(
+            &ctx,
+            core::CreateEvent {
+                account: args.account.map(str::to_owned),
+                calendar: args.calendar.map(str::to_owned),
+                provider: args.provider.map(str::to_owned),
+                summary: args.summary.into(),
+                start: args.start.into(),
+                end: args.end.into(),
+                description: args.description.map(str::to_owned),
+                location: args.location.map(str::to_owned),
+            },
+        )
+        .await,
+    )?;
     print_event_detail(cli, &event)?;
     if !cli.json {
         eprintln!("\nCreated.");
@@ -491,42 +475,27 @@ async fn update(
     client: &ncal_api::client::NotionCalendarClient,
     args: UpdateEventArgs<'_>,
 ) -> Result<(), CliError> {
-    let (acct, cal, prov) =
-        resolve_context(config, client, args.account, args.calendar, args.provider).await?;
-    let tz = config.defaults.timezone.as_deref();
-    let mut partial = serde_json::Map::new();
-    if let Some(s) = args.summary {
-        partial.insert("summary".into(), serde_json::json!(s));
-    }
-    if let Some(s) = args.start {
-        partial.insert("start".into(), event_date_json(s, tz));
-    }
-    if let Some(s) = args.end {
-        partial.insert("end".into(), event_date_json(s, tz));
-    }
-    if let Some(d) = args.description {
-        partial.insert("description".into(), serde_json::json!(d));
-    }
-    if let Some(l) = args.location {
-        partial.insert("location".into(), serde_json::json!(l));
-    }
-    if partial.is_empty() {
-        return Err(CliError::Usage(
-            "provide at least one of --summary --start --end --description --location".into(),
-        ));
-    }
-    let req = UpdateEventsRequest {
-        mutations: vec![UpdateEventMutation {
-            provider: prov,
-            account_id: acct,
-            event_id: args.event_id.to_string(),
-            calendar_id: cal,
-            event_data: serde_json::Value::Object(partial),
-            user_time_zone: config.defaults.timezone.clone(),
-            send_updates: None,
-        }],
+    let ctx = Ctx {
+        client,
+        defaults: &defaults(config),
     };
-    let resp = update_events(client, &req).await.map_err(CliError::Api)?;
+    let resp = render(
+        core::update_event(
+            &ctx,
+            core::UpdateEvent {
+                event_id: args.event_id.into(),
+                account: args.account.map(str::to_owned),
+                calendar: args.calendar.map(str::to_owned),
+                provider: args.provider.map(str::to_owned),
+                summary: args.summary.map(str::to_owned),
+                start: args.start.map(str::to_owned),
+                end: args.end.map(str::to_owned),
+                description: args.description.map(str::to_owned),
+                location: args.location.map(str::to_owned),
+            },
+        )
+        .await,
+    )?;
     if cli.json {
         return print_json(cli, &resp);
     }
@@ -556,48 +525,31 @@ async fn delete(
     client: &ncal_api::client::NotionCalendarClient,
     args: DeleteEventArgs<'_>,
 ) -> Result<(), CliError> {
-    let (acct, cal, prov) =
-        resolve_context(config, client, args.account, args.calendar, args.provider).await?;
-    if args.hard {
-        let req = DeleteEventsRequest {
-            mutations: vec![DeleteEventMutation {
-                provider: prov,
-                account_id: acct,
-                calendar_id: cal,
-                event_id: args.event_id.to_string(),
-                send_updates: None,
-            }],
-        };
-        let resp = delete_events(client, &req).await.map_err(CliError::Api)?;
-        if cli.json {
-            return print_json(cli, &resp);
-        }
-        eprintln!("Deleted (hard).");
-        return Ok(());
-    }
-    let req = UpdateEventsRequest {
-        mutations: vec![UpdateEventMutation {
-            provider: prov,
-            account_id: acct,
-            event_id: args.event_id.to_string(),
-            calendar_id: cal,
-            event_data: serde_json::json!({ "status": "cancelled", "responseStatus": "declined" }),
-            user_time_zone: config.defaults.timezone.clone(),
-            send_updates: None,
-        }],
+    let ctx = Ctx {
+        client,
+        defaults: &defaults(config),
     };
-    let resp = update_events(client, &req).await.map_err(CliError::Api)?;
+    let resp = render(
+        core::delete_event(
+            &ctx,
+            core::DeleteEvent {
+                event_id: args.event_id.into(),
+                account: args.account.map(str::to_owned),
+                calendar: args.calendar.map(str::to_owned),
+                provider: args.provider.map(str::to_owned),
+                hard: args.hard,
+            },
+        )
+        .await,
+    )?;
     if cli.json {
         return print_json(cli, &resp);
+    }
+    if args.hard {
+        eprintln!("Deleted (hard).");
+        return Ok(());
     }
     eprintln!("Cancelled.");
     hint(&["ncal events list  — verify the cancellation"]);
     Ok(())
-}
-
-fn event_date_json(datetime_rfc3339: &str, tz: Option<&str>) -> serde_json::Value {
-    match tz {
-        Some(z) => serde_json::json!({ "dateTime": datetime_rfc3339, "timeZone": z }),
-        None => serde_json::json!({ "dateTime": datetime_rfc3339 }),
-    }
 }

@@ -1,6 +1,6 @@
 use clap::Subcommand;
 
-use ncal_api::endpoints::{get_user, get_user_preferences, remove_account, update_primary_account};
+use ncal_core::{accounts_list, get_user, preferences_get, remove_account, update_primary_account};
 
 use super::context::authenticated_client;
 use crate::config::AppConfig;
@@ -48,11 +48,7 @@ pub async fn accounts(cli: &Cli, config: &AppConfig, cmd: &AccountsCmd) -> Resul
     let client = authenticated_client(config)?;
     match cmd {
         AccountsCmd::List => {
-            let accounts = get_user(&client)
-                .await
-                .map_err(CliError::Api)?
-                .accounts
-                .ok_or_else(|| CliError::Usage("no accounts on user object".into()))?;
+            let accounts = accounts_list(&client).await?;
             print_accounts(cli, &accounts)?;
             if !cli.json {
                 hint(&[
@@ -90,9 +86,8 @@ pub async fn preferences(
 ) -> Result<(), CliError> {
     let client = authenticated_client(config)?;
     match cmd {
-        PreferencesCmd::Get => print_json(
-            cli,
-            &get_user_preferences(&client).await.map_err(CliError::Api)?,
-        ),
+        PreferencesCmd::Get => {
+            print_json(cli, &preferences_get(&client).await.map_err(CliError::Api)?)
+        }
     }
 }

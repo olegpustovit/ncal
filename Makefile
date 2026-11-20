@@ -65,7 +65,7 @@ fix:
 	$(CARGO) clippy --workspace --all-targets --fix --allow-dirty --allow-staged -- -D warnings
 
 test:
-	$(CARGO) test --workspace
+	$(CARGO) t --workspace
 
 ci: fmt-check lint test
 

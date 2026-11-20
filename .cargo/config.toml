@@ -1,0 +1,2 @@
+[alias]
+t = "run -q --manifest-path tools/t/Cargo.toml --target-dir target/t-tool --"
