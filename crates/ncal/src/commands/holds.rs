@@ -1,16 +1,14 @@
 use clap::Subcommand;
 
-use ncal_api::endpoints::{
-    create_hold, delete_hold, get_hold_alias_available, get_holds, CheckAliasRequest,
-    CreateHoldRequest, DeleteHoldRequest,
-};
-use ncal_api::types::TimeRange;
-
-use super::context::authenticated_client;
+use super::context::{authenticated_client, defaults};
 use crate::config::AppConfig;
 use crate::output::{hint, print_hold_detail, print_holds, print_json};
 use crate::Cli;
 use crate::CliError;
+use ncal_api::endpoints::{CheckAliasRequest, DeleteHoldRequest};
+use ncal_core::holds::{
+    create_hold, delete_hold, find_hold, get_hold_alias_available, get_holds, CreateHoldArgs,
+};
 
 #[derive(Subcommand, Debug)]
 pub enum HoldsCmd {
@@ -125,13 +123,8 @@ async fn get(
     client: &ncal_api::client::NotionCalendarClient,
     hold_id: &str,
 ) -> Result<(), CliError> {
-    let resp = get_holds(client).await.map_err(CliError::Api)?;
-    let hold = resp.holds.iter().find(|h| h.id == hold_id).ok_or_else(|| {
-        CliError::Usage(format!(
-            "no hold with ID {hold_id:?}; use `ncal holds list` to see all"
-        ))
-    })?;
-    print_hold_detail(cli, hold)?;
+    let hold = find_hold(client, hold_id).await?;
+    print_hold_detail(cli, &hold)?;
     if !cli.json {
         hint(&[
             &format!("ncal holds delete {hold_id}  — delete this hold"),
@@ -141,52 +134,17 @@ async fn get(
     Ok(())
 }
 
-struct CreateHoldArgs<'a> {
-    title: &'a str,
-    alias: &'a str,
-    duration: u32,
-    timezone: Option<&'a str>,
-    account: &'a str,
-    calendar: &'a str,
-    hold_type: &'a str,
-    description: Option<&'a str>,
-    min_lead_time: Option<u64>,
-    max_lead_time: Option<u64>,
-}
-
 async fn create(
     cli: &Cli,
     config: &AppConfig,
     client: &ncal_api::client::NotionCalendarClient,
     args: CreateHoldArgs<'_>,
 ) -> Result<(), CliError> {
-    let tz = args
-        .timezone
-        .map(String::from)
-        .or_else(|| config.defaults.timezone.clone())
-        .unwrap_or_else(|| "UTC".to_string());
-    let id = uuid::Uuid::new_v4().to_string();
-    let req = CreateHoldRequest {
-        id: id.clone(),
-        alias: args.alias.to_string(),
-        hold_type: args.hold_type.to_string(),
-        status: "activeBookable".to_string(),
-        user_primary_time_zone: tz.clone(),
-        time_zone: tz,
-        duration: Some(args.duration),
-        time_ranges: Some(Vec::<TimeRange>::new()),
-        title: args.title.to_string(),
-        description: args.description.map(String::from),
-        conferencing_provider_name: None,
-        conferencing_account_id: None,
-        google_account_id: args.account.to_string(),
-        google_calendar_id: args.calendar.to_string(),
-        conflict_free_resources: None,
-        min_lead_time: args.min_lead_time,
-        max_lead_time: args.max_lead_time,
-        expiration_date: None,
+    let context = ncal_core::Ctx {
+        client,
+        defaults: &defaults(config),
     };
-    let resp = create_hold(client, &req).await.map_err(CliError::Api)?;
+    let (id, resp) = create_hold(&context, args).await?;
     if cli.json {
         return print_json(
             cli,

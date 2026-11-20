@@ -14,7 +14,7 @@ pub async fn list_calendars(
 ) -> Result<Vec<CalendarListResult>, CoreError> {
     let user = get_user(client).await?;
     let accounts = user.accounts.as_ref().ok_or_else(|| {
-        CoreError::Selection("no accounts connected; add one in the Notion Calendar app".into())
+        CoreError::selection("no accounts connected; add one in the Notion Calendar app".into())
     })?;
 
     let mut queries = Vec::new();
@@ -26,9 +26,9 @@ pub async fn list_calendars(
         }
         let pn = acct
             .provider_name
-            .ok_or_else(|| CoreError::Selection(format!("account {} has no provider", acct.id)))?;
+            .ok_or_else(|| CoreError::selection(format!("account {} has no provider", acct.id)))?;
         let prov = provider
-            .map(|value| value.parse().map_err(CoreError::Selection))
+            .map(|value| value.parse().map_err(CoreError::selection))
             .transpose()?
             .unwrap_or(pn);
         queries.push(CalendarListQuery {
@@ -38,7 +38,7 @@ pub async fn list_calendars(
     }
 
     if queries.is_empty() {
-        return Err(CoreError::Selection(
+        return Err(CoreError::selection(
             "no calendar accounts matched (check --account or sign in)".into(),
         ));
     }

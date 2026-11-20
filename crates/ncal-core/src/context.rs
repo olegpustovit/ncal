@@ -25,17 +25,119 @@ pub struct Resolved<T> {
     pub notes: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    InvalidSelection,
+    AccountNotFound,
+    AccountRequired,
+    CalendarRequired,
+    InvalidToken,
+    RefreshCooldown,
+    CalendarApiError,
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Hint {
+    SelectAccount,
+    SelectCalendar,
+    RefreshSession,
+    RetryLater,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct Candidate {
+    pub id: String,
+    pub label: Option<String>,
+    pub email: Option<String>,
+    pub provider: Option<Provider>,
+    pub primary: bool,
+}
+
 #[derive(Debug, thiserror::Error)]
-pub enum CoreError {
-    #[error("{0}")]
-    Selection(String),
-    #[error(transparent)]
-    Api(Box<ApiError>),
+#[error("{message}")]
+pub struct CoreError {
+    pub code: ErrorCode,
+    pub message: String,
+    pub hint: Option<Hint>,
+    pub candidates: Vec<Candidate>,
+    #[source]
+    pub upstream: Option<Box<ApiError>>,
+}
+
+impl CoreError {
+    pub fn selection(message: String) -> Self {
+        Self {
+            code: ErrorCode::InvalidSelection,
+            message,
+            hint: None,
+            candidates: vec![],
+            upstream: None,
+        }
+    }
+
+    fn accounts(code: ErrorCode, message: String, accounts: &[Account]) -> Self {
+        Self {
+            code,
+            message,
+            hint: Some(Hint::SelectAccount),
+            upstream: None,
+            candidates: accounts
+                .iter()
+                .map(|account| Candidate {
+                    id: account.id.clone(),
+                    label: account.display_name.clone(),
+                    email: account.email.clone(),
+                    provider: account.provider_name,
+                    primary: account.primary.unwrap_or(false),
+                })
+                .collect(),
+        }
+    }
+
+    fn calendars(calendars: &[Calendar]) -> Self {
+        Self {
+            code: ErrorCode::CalendarRequired,
+            message: "multiple calendars found".into(),
+            hint: Some(Hint::SelectCalendar),
+            upstream: None,
+            candidates: calendars
+                .iter()
+                .map(|calendar| Candidate {
+                    id: calendar.id.clone(),
+                    label: calendar.summary.clone(),
+                    email: None,
+                    provider: calendar.provider,
+                    primary: calendar.primary.unwrap_or(false),
+                })
+                .collect(),
+        }
+    }
 }
 
 impl From<ApiError> for CoreError {
     fn from(error: ApiError) -> Self {
-        Self::Api(Box::new(error))
+        let (code, hint, message) = match error {
+            ApiError::InvalidToken => (
+                ErrorCode::InvalidToken,
+                Some(Hint::RefreshSession),
+                "Calendar session has expired",
+            ),
+            ApiError::RefreshCooldown => (
+                ErrorCode::RefreshCooldown,
+                Some(Hint::RetryLater),
+                "Wait 30 seconds before retrying",
+            ),
+            _ => (ErrorCode::CalendarApiError, None, "Calendar request failed"),
+        };
+        Self {
+            code,
+            message: message.into(),
+            hint,
+            candidates: vec![],
+            upstream: Some(Box::new(error)),
+        }
     }
 }
 
@@ -72,7 +174,7 @@ pub async fn resolve_context(
         resolve_account(ctx.client, account_hint, &mut notes).await?;
     let prov = provider
         .map(str::parse)
-        .map(|result| result.map_err(CoreError::Selection))
+        .map(|result| result.map_err(CoreError::selection))
         .transpose()?
         .unwrap_or(resolved_provider);
     let calendar_id = match calendar.or(ctx.defaults.calendar.as_deref()) {
@@ -106,15 +208,15 @@ async fn resolve_account(
                 found.provider_name.unwrap_or(Provider::Google),
             ));
         }
-        return Err(CoreError::Selection(format!(
-            "no account matching {:?}; available accounts:\n{}",
-            q,
-            format_account_list(&accounts),
-        )));
+        return Err(CoreError::accounts(
+            ErrorCode::AccountNotFound,
+            format!("no account matching {q:?}"),
+            &accounts,
+        ));
     }
 
     match accounts.as_slice() {
-        [] => Err(CoreError::Selection(
+        [] => Err(CoreError::selection(
             "no accounts connected; add one in the Notion Calendar app".into(),
         )),
         [one] => {
@@ -123,12 +225,16 @@ async fn resolve_account(
                 one.email.as_deref().unwrap_or("?"),
                 one.provider_name.map(|p| p.to_string()).unwrap_or_default()
             ));
-            Ok((one.id.clone(), one.provider_name.unwrap_or(Provider::Google)))
+            Ok((
+                one.id.clone(),
+                one.provider_name.unwrap_or(Provider::Google),
+            ))
         }
-        many => Err(CoreError::Selection(format!(
-            "multiple accounts found; specify --account <EMAIL>:\n{}\nor set defaults.account in your config file",
-            format_account_list(many),
-        ))),
+        many => Err(CoreError::accounts(
+            ErrorCode::AccountRequired,
+            "multiple accounts found".into(),
+            many,
+        )),
     }
 }
 
@@ -141,7 +247,7 @@ pub async fn build_all_account_queries(
     let user = get_user(client).await.map_err(CoreError::from)?;
     let accounts = user.accounts.unwrap_or_default();
     if accounts.is_empty() {
-        return Err(CoreError::Selection(
+        return Err(CoreError::selection(
             "no accounts connected; add one in the Notion Calendar app".into(),
         ));
     }
@@ -160,7 +266,7 @@ pub async fn build_all_account_queries(
     let mut notes = Vec::new();
     let calendars = flatten_calendar_results(results, &mut notes);
     if calendars.is_empty() {
-        return Err(CoreError::Selection(
+        return Err(CoreError::selection(
             "no calendars found for any account".into(),
         ));
     }
@@ -169,21 +275,6 @@ pub async fn build_all_account_queries(
         .filter_map(|c| Some((c.account_id?, c.id, c.provider?)))
         .collect();
     Ok(Resolved { value, notes })
-}
-
-fn format_account_list(accounts: &[Account]) -> String {
-    accounts
-        .iter()
-        .map(|a| {
-            format!(
-                "  --account {}  # {} ({})",
-                a.email.as_deref().unwrap_or(&a.id),
-                a.display_name.as_deref().unwrap_or(""),
-                a.provider_name.map(|p| p.to_string()).unwrap_or_default(),
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 async fn auto_resolve_calendar(
@@ -212,7 +303,7 @@ async fn auto_resolve_calendar(
     }
 
     match calendars.as_slice() {
-        [] => Err(CoreError::Selection(
+        [] => Err(CoreError::selection(
             "no calendars found for this account".into(),
         )),
         [one] => {
@@ -222,22 +313,6 @@ async fn auto_resolve_calendar(
             ));
             Ok(one.id.clone())
         }
-        many => {
-            let mut msg = String::from("multiple calendars found; specify --calendar <ID>:\n");
-            for c in many {
-                msg.push_str(&format!(
-                    "  --calendar {}  # {}{}\n",
-                    c.id,
-                    c.summary.as_deref().unwrap_or(""),
-                    if c.primary == Some(true) {
-                        " (primary)"
-                    } else {
-                        ""
-                    },
-                ));
-            }
-            msg.push_str("\nor set defaults.calendar in your config file");
-            Err(CoreError::Selection(msg))
-        }
+        many => Err(CoreError::calendars(many)),
     }
 }

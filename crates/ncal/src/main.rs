@@ -49,10 +49,52 @@ pub enum CliError {
 
 impl From<ncal_core::CoreError> for CliError {
     fn from(error: ncal_core::CoreError) -> Self {
-        match error {
-            ncal_core::CoreError::Selection(message) => Self::Usage(message),
-            ncal_core::CoreError::Api(error) => Self::Api(*error),
+        use ncal_core::ErrorCode;
+        if let Some(upstream) = error.upstream {
+            return Self::Api(*upstream);
         }
+        let account_list = || {
+            error
+                .candidates
+                .iter()
+                .map(|account| {
+                    format!(
+                        "  --account {}  # {} ({})",
+                        account.email.as_deref().unwrap_or(&account.id),
+                        account.label.as_deref().unwrap_or(""),
+                        account.provider.map(|p| p.to_string()).unwrap_or_default()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let message = match error.code {
+            ErrorCode::AccountNotFound => {
+                format!("{}; available accounts:\n{}", error.message, account_list())
+            }
+            ErrorCode::AccountRequired => format!(
+                "{}; specify --account <EMAIL>:\n{}\nor set defaults.account in your config file",
+                error.message,
+                account_list()
+            ),
+            ErrorCode::CalendarRequired => {
+                use std::fmt::Write as _;
+                let mut message = format!("{}; specify --calendar <ID>:\n", error.message);
+                for cal in error.candidates {
+                    let _ = writeln!(
+                        message,
+                        "  --calendar {}  # {}{}",
+                        cal.id,
+                        cal.label.as_deref().unwrap_or(""),
+                        if cal.primary { " (primary)" } else { "" }
+                    );
+                }
+                message.push_str("\nor set defaults.calendar in your config file");
+                message
+            }
+            _ => error.message,
+        };
+        Self::Usage(message)
     }
 }
 

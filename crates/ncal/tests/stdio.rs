@@ -37,3 +37,23 @@ fn tempfile_config() -> std::path::PathBuf {
     std::fs::write(&path, "").unwrap();
     path
 }
+
+#[test]
+fn export_keeps_machine_credentials_on_stdout_and_warning_on_stderr() {
+    let config = tempfile_config();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ncal"))
+        .args(["auth", "export", "--json", "--config"])
+        .arg(&config)
+        .env("NCAL_USER_ID", "test-user")
+        .env("NCAL_ACCESS_TOKEN", "test-access")
+        .env("NCAL_REFRESH_TOKEN", "test-refresh")
+        .env("NCAL_TOKEN_EXPIRES_AT", "2099-01-01T00:00:00Z")
+        .output()
+        .unwrap();
+    std::fs::remove_file(config).unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"{\"userId\":\"test-user\",\"accessToken\":\"test-access\",\"refreshToken\":\"test-refresh\",\"accessTokenExpiresAt\":\"2099-01-01T00:00:00Z\"}\n");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("session credentials"));
+    assert!(!stderr.contains("test-refresh"));
+}

@@ -179,3 +179,15 @@ Optional create flags: `--description <TEXT>`, `--hold-type <TYPE>`,
   `calendars list --json`, then pass explicit IDs.
 - Script sees extra text: confirm `--json` and parse stdout, not stderr.
 - Flag uncertainty: run `ncal <command> --help`, not broad docs.
+
+## MCP and credential export
+
+For a local MCP client, execute `ncal mcp --read-only` in a shell with the usual
+ncal configuration. Claude Code can register it with
+`claude mcp add ncal -- ncal mcp --read-only`. Cursor uses a stdio entry with
+`"command": "ncal"` and `"args": ["mcp", "--read-only"]`.
+Omit the flag when the client should be able to modify and delete events.
+
+Use `ncal auth export --json` to transfer your active session to a trusted
+consumer. Its standard output contains credentials. A separate sign-in is
+preferable until sharing one refresh chain has been verified.

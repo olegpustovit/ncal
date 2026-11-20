@@ -52,6 +52,7 @@ check:
 	$(CARGO) check --workspace
 
 lint:
+	$(CARGO) xtask check-boundary
 	$(CARGO) clippy --workspace --all-targets -- -D warnings
 
 fmt:

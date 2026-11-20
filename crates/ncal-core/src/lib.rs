@@ -1,9 +1,10 @@
 mod context;
 pub mod events;
+pub mod holds;
 
 pub use context::{
     build_all_account_queries, flatten_calendar_results, resolve_context, CalendarTarget,
-    CoreError, Ctx, Defaults, Resolved,
+    Candidate, CoreError, Ctx, Defaults, ErrorCode, Hint, Resolved,
 };
 
 mod calendar;
@@ -20,5 +21,5 @@ pub async fn accounts_list(
     get_user(client)
         .await?
         .accounts
-        .ok_or_else(|| CoreError::Selection("no accounts on user object".into()))
+        .ok_or_else(|| CoreError::selection("no accounts on user object".into()))
 }

@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use ncal_api::{client::NotionCalendarClient, endpoints::IncrementalSyncRequest, error::ApiError};
-use ncal_core::{events::*, CoreError, Ctx, Defaults, Resolved};
+use ncal_core::{events::*, Candidate, CoreError, Ctx, Defaults, ErrorCode, Hint, Resolved};
 use rmcp::{model::*, service::RequestContext, ErrorData as McpError, RoleServer, ServerHandler};
 use schemars::JsonSchema;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -63,6 +63,8 @@ pub struct ToolFailure {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub candidates: Vec<Candidate>,
 }
 
 impl ToolFailure {
@@ -71,6 +73,7 @@ impl ToolFailure {
             code,
             message: message.into(),
             hint: None,
+            candidates: vec![],
         }
     }
 }
@@ -89,9 +92,25 @@ impl From<ApiError> for ToolFailure {
 
 impl From<CoreError> for ToolFailure {
     fn from(error: CoreError) -> Self {
-        match error {
-            CoreError::Selection(message) => Self::new("invalid_selection", message),
-            CoreError::Api(error) => (*error).into(),
+        if let Some(upstream) = error.upstream {
+            return (*upstream).into();
+        }
+        let code = match error.code {
+            ErrorCode::AccountNotFound => "account_not_found",
+            ErrorCode::AccountRequired => "account_required",
+            ErrorCode::CalendarRequired => "calendar_required",
+            _ => "invalid_selection",
+        };
+        let hint = match error.hint {
+            Some(Hint::SelectAccount) => Some("Call accounts_list and pass an account ID"),
+            Some(Hint::SelectCalendar) => Some("Call calendars_list and pass a calendar ID"),
+            _ => None,
+        };
+        Self {
+            code,
+            message: error.message,
+            hint: hint.map(str::to_owned),
+            candidates: error.candidates,
         }
     }
 }

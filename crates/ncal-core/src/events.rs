@@ -141,7 +141,7 @@ pub async fn update_event(
         partial.insert("location".into(), serde_json::json!(l));
     }
     if partial.is_empty() {
-        return Err(CoreError::Selection(
+        return Err(CoreError::selection(
             "provide at least one of --summary --start --end --description --location".into(),
         ));
     }
@@ -167,13 +167,21 @@ pub struct DeleteEvent {
     pub account: Option<String>,
     pub calendar: Option<String>,
     pub provider: Option<String>,
+    #[serde(default)]
     pub hard: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(untagged)]
+pub enum DeletedEvent {
+    Removed(serde_json::Value),
+    Cancelled(Vec<UpdateEventEntry>),
 }
 
 pub async fn delete_event(
     ctx: &Ctx<'_>,
     args: DeleteEvent,
-) -> Result<Resolved<serde_json::Value>, CoreError> {
+) -> Result<Resolved<DeletedEvent>, CoreError> {
     let Resolved {
         value: (acct, cal, prov),
         notes,
@@ -195,7 +203,10 @@ pub async fn delete_event(
             }],
         };
         let resp = rpc::delete_events(ctx.client, &req).await?;
-        return Ok(Resolved { value: resp, notes });
+        return Ok(Resolved {
+            value: DeletedEvent::Removed(resp),
+            notes,
+        });
     }
     let req = UpdateEventsRequest {
         mutations: vec![UpdateEventMutation {
@@ -210,7 +221,7 @@ pub async fn delete_event(
     };
     let resp = rpc::update_events(ctx.client, &req).await?;
     Ok(Resolved {
-        value: serde_json::to_value(resp).map_err(|e| CoreError::Selection(e.to_string()))?,
+        value: DeletedEvent::Cancelled(resp),
         notes,
     })
 }

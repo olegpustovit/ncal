@@ -62,12 +62,80 @@ fn read_version() {
     println!("{}", workspace_version(&doc));
 }
 
+fn check_boundary() -> Result<(), String> {
+    let root = workspace_root();
+    for package in ["ncal-api", "ncal-core", "ncal-mcp"] {
+        let tree = process::Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+            .current_dir(&root)
+            .args([
+                "tree",
+                "-p",
+                package,
+                "--no-default-features",
+                "--edges",
+                "normal",
+                "--prefix",
+                "depth",
+                "--format",
+                "{p}",
+                "--no-dedupe",
+            ])
+            .output()
+            .map_err(|error| format!("run cargo tree: {error}"))?;
+        if !tree.status.success() {
+            return Err(String::from_utf8_lossy(&tree.stderr).into_owned());
+        }
+        let output = String::from_utf8(tree.stdout).map_err(|error| error.to_string())?;
+        let mut ancestors = Vec::new();
+        for line in output.lines() {
+            let depth_len = line.bytes().take_while(u8::is_ascii_digit).count();
+            let depth = line[..depth_len]
+                .parse::<usize>()
+                .map_err(|error| error.to_string())?;
+            let name = line[depth_len..]
+                .split_whitespace()
+                .next()
+                .ok_or("missing crate name")?;
+            ancestors.truncate(depth);
+            // Reqwest requires this client middleware even with default features disabled.
+            let allowed_client_edge = name == "tower-http" && ancestors.last() == Some(&"reqwest");
+            if !allowed_client_edge
+                && matches!(
+                    name,
+                    "axum" | "sqlx" | "idclient" | "hyper-server" | "tower-http"
+                )
+            {
+                return Err(format!("{package}: forbidden dependency {name}"));
+            }
+            ancestors.push(name);
+        }
+    }
+    check_sources(&root.join("crates"))
+}
+
+fn check_sources(dir: &Path) -> Result<(), String> {
+    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
+        let path = entry.map_err(|error| error.to_string())?.path();
+        if path.is_dir() {
+            check_sources(&path)?;
+        } else if path.extension().is_some_and(|extension| extension == "rs")
+            && fs::read_to_string(&path)
+                .map_err(|error| error.to_string())?
+                .contains("microapps.space")
+        {
+            return Err(format!("hosted hostname in {}", path.display()));
+        }
+    }
+    Ok(())
+}
+
 fn usage() -> ! {
     eprintln!(
         "usage: cargo xtask <task>\n\n\
          tasks:\n\
            bump-version minor|patch  Bump workspace semver\n\
-           read-version              Print current workspace version"
+           read-version              Print current workspace version\n\
+           check-boundary            Verify library dependency and source boundaries"
     );
     process::exit(2)
 }
@@ -79,6 +147,12 @@ fn main() {
         Some("bump-version") => usage(),
         Some("read-version") if args.len() == 2 => read_version(),
         Some("read-version") => usage(),
+        Some("check-boundary") if args.len() == 2 => {
+            if let Err(error) = check_boundary() {
+                eprintln!("error: {error}");
+                process::exit(1);
+            }
+        }
         Some(other) => {
             eprintln!("unknown task: {other}");
             usage();

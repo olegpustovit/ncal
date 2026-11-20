@@ -59,7 +59,7 @@ See [ncal-library-boundary](.agents/skills/ncal-library-boundary/SKILL.md) befor
 |---|---|
 | `ncal-api` | Calendar RPC client, wire types, optional local credential sources |
 | `ncal-core` | Typed calendar use cases and actionable errors |
-| `ncal-mcp` (planned) | Transport-independent MCP tools |
+| `ncal-mcp` | Transport-independent MCP tools |
 | `ncal` | Local CLI, credential management, and stdio transport |
 
 ## Environment conventions
@@ -194,6 +194,8 @@ When adding a new command:
 | `ncal auth status` | Show credential source and expiry | — |
 | `ncal auth refresh` | Force token refresh | — |
 | `ncal auth logout` | Remove stored credentials | — |
+| `ncal auth export --json` | Export the active calendar session | — |
+| `ncal mcp [--read-only]` | Serve calendar tools over stdio | account + calendar |
 | `ncal whoami` | Show current user | — |
 | `ncal accounts list` | List connected accounts (table) | — |
 | `ncal accounts set-primary <ID>` | Set primary account | — |
