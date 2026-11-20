@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use url::Url;
 
 use crate::auth::Credentials;
@@ -53,6 +53,8 @@ pub struct NotionCalendarClient {
     http: reqwest::Client,
     config: Arc<ClientConfig>,
     tokens: Arc<RwLock<TokenState>>,
+    refresh_lock: Arc<Mutex<()>>,
+    managed_refresh: bool,
     on_refresh: Option<OnTokenRefresh>,
 }
 
@@ -79,6 +81,8 @@ impl NotionCalendarClient {
             http,
             config: Arc::new(config),
             tokens: Arc::new(RwLock::new(tokens)),
+            refresh_lock: Arc::new(Mutex::new(())),
+            managed_refresh: false,
             on_refresh: None,
         }
     }
@@ -88,6 +92,7 @@ impl NotionCalendarClient {
             http,
             config: None,
             creds: None,
+            managed_refresh: false,
             on_refresh: None,
         }
     }
@@ -98,7 +103,7 @@ impl NotionCalendarClient {
 
     /// Force a refresh round-trip (for `ncal auth refresh`).
     pub async fn refresh_session_now(&self) -> Result<(), ApiError> {
-        self.refresh_token().await
+        self.refresh_token(true, None).await
     }
 
     /// Generic POST `/v2/{operation}` with JSON body — auto-refresh, 401 retry once.
@@ -107,11 +112,13 @@ impl NotionCalendarClient {
         operation: &str,
         params: &Req,
     ) -> Result<Resp, ApiError> {
-        self.ensure_valid_token().await?;
+        if !self.managed_refresh {
+            self.ensure_valid_token().await?;
+        }
         let token = self.tokens.read().await.access_token.clone();
         let resp = self.do_request(operation, params, Some(&token)).await?;
-        if resp.status() == StatusCode::UNAUTHORIZED {
-            self.refresh_token().await?;
+        if !self.managed_refresh && resp.status() == StatusCode::UNAUTHORIZED {
+            self.refresh_token(false, Some(&token)).await?;
             let token = self.tokens.read().await.access_token.clone();
             let resp = self.do_request(operation, params, Some(&token)).await?;
             return self.parse_response(resp).await;
@@ -135,12 +142,17 @@ impl NotionCalendarClient {
             return Ok(());
         }
         drop(tokens);
-        self.refresh_token().await
+        self.refresh_token(false, None).await
     }
 
-    async fn refresh_token(&self) -> Result<(), ApiError> {
+    async fn refresh_token(&self, force: bool, rejected: Option<&str>) -> Result<(), ApiError> {
+        let _guard = self.refresh_lock.lock().await;
         let mut tokens = self.tokens.write().await;
-        if tokens.expires_at > chrono::Utc::now() + chrono::Duration::seconds(60) {
+        let current = rejected.map_or_else(
+            || tokens.expires_at > chrono::Utc::now() + chrono::Duration::seconds(60),
+            |token| token != tokens.access_token,
+        );
+        if !force && current {
             return Ok(());
         }
 
@@ -157,6 +169,8 @@ impl NotionCalendarClient {
 
         let refresh_token = tokens.refresh_token.clone();
         let access_for_header = tokens.access_token.clone();
+        tokens.last_refresh = Some(std::time::Instant::now());
+        tokens.refresh_failures_in_window = tokens.refresh_failures_in_window.saturating_add(1);
         drop(tokens);
 
         let resp = self
@@ -176,8 +190,7 @@ impl NotionCalendarClient {
             tokens.access_token = body.access_token;
             tokens.refresh_token = body.refresh_token;
             tokens.expires_at = expires_at;
-            tokens.last_refresh = Some(std::time::Instant::now());
-            tokens.refresh_failures_in_window = tokens.refresh_failures_in_window.saturating_add(1);
+
             Credentials {
                 user_id: tokens.user_id.clone(),
                 access_token: tokens.access_token.clone(),
@@ -281,6 +294,7 @@ pub struct NotionCalendarClientBuilder {
     http: reqwest::Client,
     config: Option<ClientConfig>,
     creds: Option<Credentials>,
+    managed_refresh: bool,
     on_refresh: Option<OnTokenRefresh>,
 }
 
@@ -292,6 +306,13 @@ impl NotionCalendarClientBuilder {
 
     pub fn credentials(mut self, creds: Credentials) -> Self {
         self.creds = Some(creds);
+        self
+    }
+
+    /// Let the caller coordinate refresh across multiple client instances.
+    /// RPCs use the supplied access token and return authentication errors directly.
+    pub fn managed_refresh(mut self) -> Self {
+        self.managed_refresh = true;
         self
     }
 
@@ -321,6 +342,8 @@ impl NotionCalendarClientBuilder {
             http: self.http,
             config,
             tokens: Arc::new(RwLock::new(tokens)),
+            refresh_lock: Arc::new(Mutex::new(())),
+            managed_refresh: self.managed_refresh,
             on_refresh: self.on_refresh,
         })
     }
