@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ncal-api", "crates/ncal", "xtask"]
+members = ["crates/ncal-api", "crates/ncal-core", "crates/ncal", "xtask"]
 
 [workspace.package]
 version = "0.1.0"

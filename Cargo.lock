@@ -1053,6 +1053,7 @@ dependencies = [
  "clap",
  "directories",
  "ncal-api",
+ "ncal-core",
  "open",
  "reqwest",
  "serde",
@@ -1079,6 +1080,14 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "ncal-core"
+version = "0.1.0"
+dependencies = [
+ "ncal-api",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

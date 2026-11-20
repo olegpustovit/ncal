@@ -58,7 +58,7 @@ See [ncal-library-boundary](.agents/skills/ncal-library-boundary/SKILL.md) befor
 | Crate | Responsibility |
 |---|---|
 | `ncal-api` | Calendar RPC client, wire types, optional local credential sources |
-| `ncal-core` (planned) | Typed calendar use cases and actionable errors |
+| `ncal-core` | Typed calendar use cases and actionable errors |
 | `ncal-mcp` (planned) | Transport-independent MCP tools |
 | `ncal` | Local CLI, credential management, and stdio transport |
 

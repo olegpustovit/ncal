@@ -1,0 +1,11 @@
+[package]
+name = "ncal-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Reusable Notion Calendar use cases"
+
+[dependencies]
+ncal-api = { path = "../ncal-api", default-features = false }
+thiserror = "2"

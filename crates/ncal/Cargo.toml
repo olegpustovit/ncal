@@ -19,6 +19,7 @@ chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 directories = "5"
 ncal-api = { path = "../ncal-api" }
+ncal-core = { path = "../ncal-core" }
 open = "5"
 reqwest = { version = "0.13", default-features = false, features = ["json", "gzip", "rustls"] }
 serde = { version = "1", features = ["derive"] }
