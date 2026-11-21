@@ -29,6 +29,20 @@ pub trait ClientSource: Send + Sync + 'static {
         std::future::ready(())
     }
 
+    /// Observe the outcome and structured response before it is returned to the client.
+    fn completed(
+        &self,
+        request: &RequestContext<RoleServer>,
+        tool: &str,
+        result: Result<&Value, &ToolFailure>,
+    ) -> impl Future<Output = ()> + Send {
+        self.finished(
+            request,
+            tool,
+            result.map_or_else(|error| error.code, |_| "ok"),
+        )
+    }
+
     fn relink_hint(&self) -> Option<&str> {
         None
     }
@@ -194,11 +208,7 @@ impl<S: ClientSource> ServerHandler for NcalMcp<S> {
         let name = request.name.clone();
         let result = self.invoke(request, &context).await;
         self.source
-            .finished(
-                &context,
-                &name,
-                result.as_ref().map_or_else(|error| error.code, |_| "ok"),
-            )
+            .completed(&context, &name, result.as_ref())
             .await;
         Ok(match result {
             Ok(value) => CallToolResult::structured(value),
@@ -306,10 +316,22 @@ define_tools! {
         resolved(create_event(ctx, args).await?)
     };
     "events_update", "Update specified fields on an existing calendar event", false, false, UpdateEvent, |ctx, args| {
-        resolved(update_event(ctx, args).await?)
+        let result = update_event(ctx, args).await?;
+        if result.value.len() != 1 || result.value[0].event.is_none()
+            || result.value[0].error_message.is_some()
+        {
+            return Err(ToolFailure::new("calendar_api_error", "Calendar rejected the event update"));
+        }
+        resolved(result)
     };
     "events_delete", "Cancel or permanently delete a calendar event", false, true, DeleteEvent, |ctx, args| {
-        resolved(delete_event(ctx, args).await?)
+        let result = delete_event(ctx, args).await?;
+        if let DeletedEvent::Cancelled(entries) = &result.value {
+            if entries.len() != 1 || entries[0].event.is_none() || entries[0].error_message.is_some() {
+                return Err(ToolFailure::new("calendar_api_error", "Calendar rejected the event cancellation"));
+            }
+        }
+        resolved(result)
     };
     "sync", "Fetch an initial calendar sync", true, false, Empty, |ctx, _args| {
         data(ncal_core::sync(ctx.client, &IncrementalSyncRequest { sync_tokens: vec![], metadata: None }).await?)

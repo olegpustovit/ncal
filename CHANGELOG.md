@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+- Let MCP hosts observe structured tool results for auditing without changing client schemas.
+- Preserve resolved account and calendar IDs on event mutation responses.
+- Report rejected event updates and cancellations as failed MCP calls.
+
 ## 0.2.1
 
 - Use a supported macOS runner for Apple Silicon release binaries.

@@ -88,7 +88,9 @@ pub async fn create_event(ctx: &Ctx<'_>, args: CreateEvent) -> Result<Resolved<E
             send_updates: None,
         },
     };
-    let event = rpc::create_event(ctx.client, &req).await?;
+    let mut event = rpc::create_event(ctx.client, &req).await?;
+    event.account_id.get_or_insert(req.mutation.account_id);
+    event.calendar_id.get_or_insert(req.mutation.calendar_id);
     Ok(Resolved {
         value: event,
         notes,
@@ -156,7 +158,17 @@ pub async fn update_event(
             send_updates: None,
         }],
     };
-    let resp = rpc::update_events(ctx.client, &req).await?;
+    let mut resp = rpc::update_events(ctx.client, &req).await?;
+    if let [entry] = resp.as_mut_slice() {
+        if let Some(event) = &mut entry.event {
+            event
+                .account_id
+                .get_or_insert_with(|| req.mutations[0].account_id.clone());
+            event
+                .calendar_id
+                .get_or_insert_with(|| req.mutations[0].calendar_id.clone());
+        }
+    }
     Ok(Resolved { value: resp, notes })
 }
 
@@ -219,7 +231,17 @@ pub async fn delete_event(
             send_updates: None,
         }],
     };
-    let resp = rpc::update_events(ctx.client, &req).await?;
+    let mut resp = rpc::update_events(ctx.client, &req).await?;
+    if let [entry] = resp.as_mut_slice() {
+        if let Some(event) = &mut entry.event {
+            event
+                .account_id
+                .get_or_insert_with(|| req.mutations[0].account_id.clone());
+            event
+                .calendar_id
+                .get_or_insert_with(|| req.mutations[0].calendar_id.clone());
+        }
+    }
     Ok(Resolved {
         value: DeletedEvent::Cancelled(resp),
         notes,
