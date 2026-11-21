@@ -4,7 +4,7 @@ exclude = ["tools/t"]
 members = ["crates/ncal-api", "crates/ncal-core", "crates/ncal-mcp", "crates/ncal", "xtask"]
 
 [workspace.package]
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/olegpustovit/ncal"

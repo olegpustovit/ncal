@@ -53,6 +53,18 @@ pub trait ClientSource: Send + Sync + 'static {
         std::future::ready(Ok(()))
     }
 
+    /// Inspect a mutation's event identity using the same client that will perform it.
+    fn authorize_event_write(
+        &self,
+        request: &RequestContext<RoleServer>,
+        tool: &str,
+        target: ncal_core::CalendarTarget,
+        _event_id: Option<String>,
+        _client: &NotionCalendarClient,
+    ) -> impl Future<Output = Result<(), ToolFailure>> + Send {
+        self.authorize_write(request, tool, target)
+    }
+
     fn relink_hint(&self) -> Option<&str> {
         None
     }
@@ -185,9 +197,14 @@ impl<S: ClientSource> NcalMcp<S> {
             tool.name.as_ref(),
             request.arguments.unwrap_or_default(),
             &ctx,
-            |target| {
-                self.source
-                    .authorize_write(context, tool.name.as_ref(), target)
+            |target, event_id| {
+                self.source.authorize_event_write(
+                    context,
+                    tool.name.as_ref(),
+                    target,
+                    event_id,
+                    &client,
+                )
             },
         )
         .await
@@ -289,7 +306,7 @@ macro_rules! define_tools {
 
         async fn dispatch<F, Fut>(name: &str, args: JsonObject, ctx: &Ctx<'_>, authorize: F) -> Result<Value, ToolFailure>
         where
-            F: FnOnce(ncal_core::CalendarTarget) -> Fut,
+            F: FnOnce(ncal_core::CalendarTarget, Option<String>) -> Fut,
             Fut: Future<Output = Result<(), ToolFailure>>,
         {
             match name {
@@ -332,10 +349,10 @@ define_tools! {
         resolved(get_event(ctx, args).await?)
     };
     "events_create", "Create a calendar event with RFC3339 start and end times", false, false, CreateEvent, |ctx, args, authorize| {
-        resolved(create_event_guarded(ctx, args, authorize).await?)
+        resolved(create_event_checked(ctx, args, authorize).await?)
     };
     "events_update", "Update specified fields on an existing calendar event", false, false, UpdateEvent, |ctx, args, authorize| {
-        let result = update_event_guarded(ctx, args, authorize).await?;
+        let result = update_event_checked(ctx, args, authorize).await?;
         if result.value.len() != 1 || result.value[0].event.is_none()
             || result.value[0].error_message.is_some()
         {
@@ -344,7 +361,7 @@ define_tools! {
         resolved(result)
     };
     "events_delete", "Cancel or permanently delete a calendar event", false, true, DeleteEvent, |ctx, args, authorize| {
-        let result = delete_event_guarded(ctx, args, authorize).await?;
+        let result = delete_event_checked(ctx, args, authorize).await?;
         if let DeletedEvent::Cancelled(entries) = &result.value {
             if entries.len() != 1 || entries[0].event.is_none() || entries[0].error_message.is_some() {
                 return Err(ToolFailure::new("calendar_api_error", "Calendar rejected the event cancellation"));

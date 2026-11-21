@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Expose the resolved event ID and provider client to mutation authorization hooks.
+
 ## 0.2.3
 
 - Let MCP hosts authorize writes against resolved calendar targets before mutation.

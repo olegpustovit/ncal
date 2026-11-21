@@ -27,20 +27,36 @@ pub async fn get_event(ctx: &Ctx<'_>, args: GetEvent) -> Result<Resolved<Event>,
         args.provider.as_deref(),
     )
     .await?;
+    let event = get_event_at(
+        ctx.client,
+        (account_id, calendar_id, provider),
+        args.event_id,
+        ctx.defaults.timezone.clone(),
+    )
+    .await?;
+    Ok(Resolved {
+        value: event,
+        notes,
+    })
+}
+
+/// Fetch an event using a fully resolved calendar target.
+pub async fn get_event_at(
+    client: &ncal_api::client::NotionCalendarClient,
+    (account_id, calendar_id, provider): crate::CalendarTarget,
+    event_id: String,
+    user_time_zone: Option<String>,
+) -> Result<Event, CoreError> {
     let req = GetEventRequest {
         query: GetEventQuery {
             provider,
             account_id,
             calendar_id,
-            event_id: args.event_id,
-            user_time_zone: ctx.defaults.timezone.clone(),
+            event_id,
+            user_time_zone,
         },
     };
-    let resp = rpc::get_event(ctx.client, &req).await?;
-    Ok(Resolved {
-        value: resp.event,
-        notes,
-    })
+    Ok(rpc::get_event(client, &req).await?.event)
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, schemars::JsonSchema)]
@@ -70,6 +86,19 @@ where
     Fut: std::future::Future<Output = Result<(), E>>,
     E: From<CoreError>,
 {
+    create_event_checked(ctx, args, |target, _| authorize(target)).await
+}
+
+pub async fn create_event_checked<F, Fut, E>(
+    ctx: &Ctx<'_>,
+    args: CreateEvent,
+    authorize: F,
+) -> Result<Resolved<Event>, E>
+where
+    F: FnOnce(crate::CalendarTarget, Option<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<(), E>>,
+    E: From<CoreError>,
+{
     let Resolved {
         value: (acct, cal, prov),
         notes,
@@ -80,7 +109,7 @@ where
         args.provider.as_deref(),
     )
     .await?;
-    authorize((acct.clone(), cal.clone(), prov)).await?;
+    authorize((acct.clone(), cal.clone(), prov), None).await?;
     let tz = ctx.defaults.timezone.as_deref();
     let mut event_data = serde_json::Map::from_iter([
         ("summary".into(), serde_json::json!(args.summary)),
@@ -144,6 +173,19 @@ where
     Fut: std::future::Future<Output = Result<(), E>>,
     E: From<CoreError>,
 {
+    update_event_checked(ctx, args, |target, _| authorize(target)).await
+}
+
+pub async fn update_event_checked<F, Fut, E>(
+    ctx: &Ctx<'_>,
+    args: UpdateEvent,
+    authorize: F,
+) -> Result<Resolved<Vec<UpdateEventEntry>>, E>
+where
+    F: FnOnce(crate::CalendarTarget, Option<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<(), E>>,
+    E: From<CoreError>,
+{
     let Resolved {
         value: (acct, cal, prov),
         notes,
@@ -154,7 +196,11 @@ where
         args.provider.as_deref(),
     )
     .await?;
-    authorize((acct.clone(), cal.clone(), prov)).await?;
+    authorize(
+        (acct.clone(), cal.clone(), prov),
+        Some(args.event_id.clone()),
+    )
+    .await?;
     let tz = ctx.defaults.timezone.as_deref();
     let mut partial = serde_json::Map::new();
     if let Some(s) = args.summary {
@@ -240,6 +286,19 @@ where
     Fut: std::future::Future<Output = Result<(), E>>,
     E: From<CoreError>,
 {
+    delete_event_checked(ctx, args, |target, _| authorize(target)).await
+}
+
+pub async fn delete_event_checked<F, Fut, E>(
+    ctx: &Ctx<'_>,
+    args: DeleteEvent,
+    authorize: F,
+) -> Result<Resolved<DeletedEvent>, E>
+where
+    F: FnOnce(crate::CalendarTarget, Option<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<(), E>>,
+    E: From<CoreError>,
+{
     let Resolved {
         value: (acct, cal, prov),
         notes,
@@ -250,7 +309,11 @@ where
         args.provider.as_deref(),
     )
     .await?;
-    authorize((acct.clone(), cal.clone(), prov)).await?;
+    authorize(
+        (acct.clone(), cal.clone(), prov),
+        Some(args.event_id.clone()),
+    )
+    .await?;
     if args.hard {
         let req = DeleteEventsRequest {
             mutations: vec![DeleteEventMutation {
