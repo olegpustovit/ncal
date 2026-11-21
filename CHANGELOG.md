@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5
+
+- Expose tool authorization and structured-response filtering hooks to MCP hosts.
+- Include resolved target IDs in event reads when the provider omits them.
+
 ## 0.2.4
 
 - Expose the resolved event ID and provider client to mutation authorization hooks.

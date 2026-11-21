@@ -27,13 +27,15 @@ pub async fn get_event(ctx: &Ctx<'_>, args: GetEvent) -> Result<Resolved<Event>,
         args.provider.as_deref(),
     )
     .await?;
-    let event = get_event_at(
+    let mut event = get_event_at(
         ctx.client,
-        (account_id, calendar_id, provider),
+        (account_id.clone(), calendar_id.clone(), provider),
         args.event_id,
         ctx.defaults.timezone.clone(),
     )
     .await?;
+    event.account_id.get_or_insert(account_id);
+    event.calendar_id.get_or_insert(calendar_id);
     Ok(Resolved {
         value: event,
         notes,

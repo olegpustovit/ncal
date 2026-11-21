@@ -65,6 +65,27 @@ pub trait ClientSource: Send + Sync + 'static {
         self.authorize_write(request, tool, target)
     }
 
+    /// Authorize a tool call before dispatch.
+    fn authorize_tool(
+        &self,
+        _request: &RequestContext<RoleServer>,
+        _tool: &str,
+        _arguments: &JsonObject,
+        _client: &NotionCalendarClient,
+    ) -> impl Future<Output = Result<(), ToolFailure>> + Send {
+        std::future::ready(Ok(()))
+    }
+
+    /// Limit the data a caller may see before the structured response leaves the server.
+    fn filter_tool_result(
+        &self,
+        _request: &RequestContext<RoleServer>,
+        _tool: &str,
+        result: Result<Value, ToolFailure>,
+    ) -> Result<Value, ToolFailure> {
+        result
+    }
+
     fn relink_hint(&self) -> Option<&str> {
         None
     }
@@ -193,21 +214,22 @@ impl<S: ClientSource> NcalMcp<S> {
             client: &client,
             defaults: &defaults,
         };
-        dispatch(
-            tool.name.as_ref(),
-            request.arguments.unwrap_or_default(),
-            &ctx,
-            |target, event_id| {
-                self.source.authorize_event_write(
-                    context,
-                    tool.name.as_ref(),
-                    target,
-                    event_id,
-                    &client,
-                )
-            },
-        )
-        .await
+        let args = request.arguments.unwrap_or_default();
+        self.source
+            .authorize_tool(context, tool.name.as_ref(), &args, &client)
+            .await?;
+        let result = dispatch(tool.name.as_ref(), args, &ctx, |target, event_id| {
+            self.source.authorize_event_write(
+                context,
+                tool.name.as_ref(),
+                target,
+                event_id,
+                &client,
+            )
+        })
+        .await;
+        self.source
+            .filter_tool_result(context, tool.name.as_ref(), result)
     }
 }
 
