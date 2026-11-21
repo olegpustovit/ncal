@@ -1262,7 +1262,7 @@ dependencies = [
 
 [[package]]
 name = "ncal"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "chrono",
  "clap",
@@ -1284,7 +1284,7 @@ dependencies = [
 
 [[package]]
 name = "ncal-api"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "chrono",
  "keyring",
@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "ncal-core"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "chrono",
  "ncal-api",
@@ -1314,7 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "ncal-mcp"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "ncal-api",
  "ncal-core",
@@ -3246,7 +3246,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "semver",
  "toml_edit",

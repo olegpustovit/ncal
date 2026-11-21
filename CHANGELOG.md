@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Let MCP hosts authorize writes against resolved calendar targets before mutation.
+
 ## 0.2.2
 
 - Let MCP hosts observe structured tool results for auditing without changing client schemas.

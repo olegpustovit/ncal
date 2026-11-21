@@ -43,6 +43,16 @@ pub trait ClientSource: Send + Sync + 'static {
         )
     }
 
+    /// Authorize a write against its resolved target before contacting the provider.
+    fn authorize_write(
+        &self,
+        _request: &RequestContext<RoleServer>,
+        _tool: &str,
+        _target: ncal_core::CalendarTarget,
+    ) -> impl Future<Output = Result<(), ToolFailure>> + Send {
+        std::future::ready(Ok(()))
+    }
+
     fn relink_hint(&self) -> Option<&str> {
         None
     }
@@ -175,6 +185,10 @@ impl<S: ClientSource> NcalMcp<S> {
             tool.name.as_ref(),
             request.arguments.unwrap_or_default(),
             &ctx,
+            |target| {
+                self.source
+                    .authorize_write(context, tool.name.as_ref(), target)
+            },
         )
         .await
     }
@@ -268,16 +282,21 @@ fn tool<T: JsonSchema + 'static>(
 }
 
 macro_rules! define_tools {
-    ($($name:literal, $label:literal, $read:literal, $destructive:literal, $ty:ty, |$ctx:ident, $args:ident| $call:expr;)*) => {
+    ($($name:literal, $label:literal, $read:literal, $destructive:literal, $ty:ty, |$ctx:ident, $args:ident, $authorize:ident| $call:expr;)*) => {
         fn tools() -> Vec<Tool> {
             vec![$(tool::<$ty>($name, $label, $read, $destructive)),*]
         }
 
-        async fn dispatch(name: &str, args: JsonObject, ctx: &Ctx<'_>) -> Result<Value, ToolFailure> {
+        async fn dispatch<F, Fut>(name: &str, args: JsonObject, ctx: &Ctx<'_>, authorize: F) -> Result<Value, ToolFailure>
+        where
+            F: FnOnce(ncal_core::CalendarTarget) -> Fut,
+            Fut: Future<Output = Result<(), ToolFailure>>,
+        {
             match name {
                 $($name => {
                     let $args: $ty = arguments(args)?;
                     let $ctx = ctx;
+                    let $authorize = authorize;
                     $call
                 },)*
                 _ => Err(ToolFailure::new("unknown_tool", "Unknown calendar tool")),
@@ -287,11 +306,11 @@ macro_rules! define_tools {
 }
 
 define_tools! {
-    "whoami", "Show the linked calendar identity", true, false, Empty, |ctx, _args| {
+    "whoami", "Show the linked calendar identity", true, false, Empty, |ctx, _args, _authorize| {
         let user = ncal_core::get_user(ctx.client).await?;
         Ok(json!({ "id": user.id, "email": user.email, "displayName": user.display_name, "notionUserId": user.notion_user_id }))
     };
-    "accounts_list", "List connected calendar accounts", true, false, Empty, |ctx, _args| {
+    "accounts_list", "List connected calendar accounts", true, false, Empty, |ctx, _args, _authorize| {
         let accounts = ncal_core::accounts_list(ctx.client).await?;
         let accounts: Vec<_> = accounts.into_iter().map(|account| json!({
             "id": account.id, "email": account.email, "displayName": account.display_name,
@@ -299,24 +318,24 @@ define_tools! {
         })).collect();
         Ok(json!({ "accounts": accounts }))
     };
-    "calendars_list", "Discover calendars and their IDs", true, false, ListCalendars, |ctx, args| {
+    "calendars_list", "Discover calendars and their IDs", true, false, ListCalendars, |ctx, args, _authorize| {
         let results = ncal_core::list_calendars(ctx.client, args.account.as_deref(), args.provider.as_deref()).await?;
         Ok(json!({ "results": data(results)? }))
     };
-    "calendar_colors", "List the available calendar colors", true, false, Empty, |ctx, _args| {
+    "calendar_colors", "List the available calendar colors", true, false, Empty, |ctx, _args, _authorize| {
         data(ncal_core::calendar_colors(ctx.client).await?)
     };
-    "events_list", "List events across calendars or filter by calendar and time range in epoch milliseconds", true, false, ListEvents, |ctx, args| {
+    "events_list", "List events across calendars or filter by calendar and time range in epoch milliseconds", true, false, ListEvents, |ctx, args, _authorize| {
         resolved(list_events(ctx, args).await?)
     };
-    "events_get", "Fetch one calendar event by ID", true, false, GetEvent, |ctx, args| {
+    "events_get", "Fetch one calendar event by ID", true, false, GetEvent, |ctx, args, _authorize| {
         resolved(get_event(ctx, args).await?)
     };
-    "events_create", "Create a calendar event with RFC3339 start and end times", false, false, CreateEvent, |ctx, args| {
-        resolved(create_event(ctx, args).await?)
+    "events_create", "Create a calendar event with RFC3339 start and end times", false, false, CreateEvent, |ctx, args, authorize| {
+        resolved(create_event_guarded(ctx, args, authorize).await?)
     };
-    "events_update", "Update specified fields on an existing calendar event", false, false, UpdateEvent, |ctx, args| {
-        let result = update_event(ctx, args).await?;
+    "events_update", "Update specified fields on an existing calendar event", false, false, UpdateEvent, |ctx, args, authorize| {
+        let result = update_event_guarded(ctx, args, authorize).await?;
         if result.value.len() != 1 || result.value[0].event.is_none()
             || result.value[0].error_message.is_some()
         {
@@ -324,8 +343,8 @@ define_tools! {
         }
         resolved(result)
     };
-    "events_delete", "Cancel or permanently delete a calendar event", false, true, DeleteEvent, |ctx, args| {
-        let result = delete_event(ctx, args).await?;
+    "events_delete", "Cancel or permanently delete a calendar event", false, true, DeleteEvent, |ctx, args, authorize| {
+        let result = delete_event_guarded(ctx, args, authorize).await?;
         if let DeletedEvent::Cancelled(entries) = &result.value {
             if entries.len() != 1 || entries[0].event.is_none() || entries[0].error_message.is_some() {
                 return Err(ToolFailure::new("calendar_api_error", "Calendar rejected the event cancellation"));
@@ -333,13 +352,13 @@ define_tools! {
         }
         resolved(result)
     };
-    "sync", "Fetch an initial calendar sync", true, false, Empty, |ctx, _args| {
+    "sync", "Fetch an initial calendar sync", true, false, Empty, |ctx, _args, _authorize| {
         data(ncal_core::sync(ctx.client, &IncrementalSyncRequest { sync_tokens: vec![], metadata: None }).await?)
     };
-    "contacts_list", "List contacts from connected calendar accounts", true, false, Empty, |ctx, _args| {
+    "contacts_list", "List contacts from connected calendar accounts", true, false, Empty, |ctx, _args, _authorize| {
         Ok(json!({ "contacts": data(ncal_core::contacts_list(ctx.client).await?)? }))
     };
-    "preferences_get", "Show calendar preferences", true, false, Empty, |ctx, _args| {
+    "preferences_get", "Show calendar preferences", true, false, Empty, |ctx, _args, _authorize| {
         Ok(json!({ "preferences": ncal_core::preferences_get(ctx.client).await? }))
     };
 }

@@ -57,6 +57,19 @@ pub struct CreateEvent {
 }
 
 pub async fn create_event(ctx: &Ctx<'_>, args: CreateEvent) -> Result<Resolved<Event>, CoreError> {
+    create_event_guarded(ctx, args, |_| std::future::ready(Ok(()))).await
+}
+
+pub async fn create_event_guarded<F, Fut, E>(
+    ctx: &Ctx<'_>,
+    args: CreateEvent,
+    authorize: F,
+) -> Result<Resolved<Event>, E>
+where
+    F: FnOnce(crate::CalendarTarget) -> Fut,
+    Fut: std::future::Future<Output = Result<(), E>>,
+    E: From<CoreError>,
+{
     let Resolved {
         value: (acct, cal, prov),
         notes,
@@ -67,6 +80,7 @@ pub async fn create_event(ctx: &Ctx<'_>, args: CreateEvent) -> Result<Resolved<E
         args.provider.as_deref(),
     )
     .await?;
+    authorize((acct.clone(), cal.clone(), prov)).await?;
     let tz = ctx.defaults.timezone.as_deref();
     let mut event_data = serde_json::Map::from_iter([
         ("summary".into(), serde_json::json!(args.summary)),
@@ -88,7 +102,9 @@ pub async fn create_event(ctx: &Ctx<'_>, args: CreateEvent) -> Result<Resolved<E
             send_updates: None,
         },
     };
-    let mut event = rpc::create_event(ctx.client, &req).await?;
+    let mut event = rpc::create_event(ctx.client, &req)
+        .await
+        .map_err(CoreError::from)?;
     event.account_id.get_or_insert(req.mutation.account_id);
     event.calendar_id.get_or_insert(req.mutation.calendar_id);
     Ok(Resolved {
@@ -115,6 +131,19 @@ pub async fn update_event(
     ctx: &Ctx<'_>,
     args: UpdateEvent,
 ) -> Result<Resolved<Vec<UpdateEventEntry>>, CoreError> {
+    update_event_guarded(ctx, args, |_| std::future::ready(Ok(()))).await
+}
+
+pub async fn update_event_guarded<F, Fut, E>(
+    ctx: &Ctx<'_>,
+    args: UpdateEvent,
+    authorize: F,
+) -> Result<Resolved<Vec<UpdateEventEntry>>, E>
+where
+    F: FnOnce(crate::CalendarTarget) -> Fut,
+    Fut: std::future::Future<Output = Result<(), E>>,
+    E: From<CoreError>,
+{
     let Resolved {
         value: (acct, cal, prov),
         notes,
@@ -125,6 +154,7 @@ pub async fn update_event(
         args.provider.as_deref(),
     )
     .await?;
+    authorize((acct.clone(), cal.clone(), prov)).await?;
     let tz = ctx.defaults.timezone.as_deref();
     let mut partial = serde_json::Map::new();
     if let Some(s) = args.summary {
@@ -145,7 +175,8 @@ pub async fn update_event(
     if partial.is_empty() {
         return Err(CoreError::selection(
             "provide at least one of --summary --start --end --description --location".into(),
-        ));
+        )
+        .into());
     }
     let req = UpdateEventsRequest {
         mutations: vec![UpdateEventMutation {
@@ -158,7 +189,9 @@ pub async fn update_event(
             send_updates: None,
         }],
     };
-    let mut resp = rpc::update_events(ctx.client, &req).await?;
+    let mut resp = rpc::update_events(ctx.client, &req)
+        .await
+        .map_err(CoreError::from)?;
     if let [entry] = resp.as_mut_slice() {
         if let Some(event) = &mut entry.event {
             event
@@ -194,6 +227,19 @@ pub async fn delete_event(
     ctx: &Ctx<'_>,
     args: DeleteEvent,
 ) -> Result<Resolved<DeletedEvent>, CoreError> {
+    delete_event_guarded(ctx, args, |_| std::future::ready(Ok(()))).await
+}
+
+pub async fn delete_event_guarded<F, Fut, E>(
+    ctx: &Ctx<'_>,
+    args: DeleteEvent,
+    authorize: F,
+) -> Result<Resolved<DeletedEvent>, E>
+where
+    F: FnOnce(crate::CalendarTarget) -> Fut,
+    Fut: std::future::Future<Output = Result<(), E>>,
+    E: From<CoreError>,
+{
     let Resolved {
         value: (acct, cal, prov),
         notes,
@@ -204,6 +250,7 @@ pub async fn delete_event(
         args.provider.as_deref(),
     )
     .await?;
+    authorize((acct.clone(), cal.clone(), prov)).await?;
     if args.hard {
         let req = DeleteEventsRequest {
             mutations: vec![DeleteEventMutation {
@@ -214,7 +261,9 @@ pub async fn delete_event(
                 send_updates: None,
             }],
         };
-        let resp = rpc::delete_events(ctx.client, &req).await?;
+        let resp = rpc::delete_events(ctx.client, &req)
+            .await
+            .map_err(CoreError::from)?;
         return Ok(Resolved {
             value: DeletedEvent::Removed(resp),
             notes,
@@ -231,7 +280,9 @@ pub async fn delete_event(
             send_updates: None,
         }],
     };
-    let mut resp = rpc::update_events(ctx.client, &req).await?;
+    let mut resp = rpc::update_events(ctx.client, &req)
+        .await
+        .map_err(CoreError::from)?;
     if let [entry] = resp.as_mut_slice() {
         if let Some(event) = &mut entry.event {
             event

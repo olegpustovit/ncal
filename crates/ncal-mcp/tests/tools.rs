@@ -11,7 +11,7 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
-struct Source(NotionCalendarClient);
+struct Source(NotionCalendarClient, bool);
 
 impl ClientSource for Source {
     async fn client(
@@ -26,6 +26,22 @@ impl ClientSource for Source {
                 timezone: None,
             },
         ))
+    }
+    async fn authorize_write(
+        &self,
+        _: &RequestContext<RoleServer>,
+        _: &str,
+        (account, calendar, _): ncal_core::CalendarTarget,
+    ) -> Result<(), ToolFailure> {
+        assert_eq!(account, "account");
+        assert_eq!(calendar, "calendar");
+        if self.1 {
+            return Err(ToolFailure::new(
+                "calendar_read_only",
+                "Fixture denies calendar writes",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -71,11 +87,11 @@ async fn every_tool_dispatches_and_destructive_gate_is_enforced() {
         })
         .build()
         .unwrap();
-    for destructive in [true, false] {
+    for (destructive, blocked) in [(true, false), (false, false), (true, true)] {
         let (transport, peer) = tokio::io::duplex(64 * 1024);
         let server = tokio::spawn(
             NcalMcp::new(
-                Source(client.clone()),
+                Source(client.clone(), blocked),
                 ToolPolicy {
                     write: true,
                     destructive,
@@ -117,6 +133,9 @@ async fn every_tool_dispatches_and_destructive_gate_is_enforced() {
             let content = result.structured_content.unwrap();
             if !destructive && name == "events_delete" {
                 assert_eq!(content["code"], "insufficient_scope");
+            } else if blocked && ["events_create", "events_update", "events_delete"].contains(&name)
+            {
+                assert_eq!(content["code"], "calendar_read_only");
             } else {
                 assert_ne!(result.is_error, Some(true), "{name}: {content}");
                 assert!(!content.to_string().contains("must-not-appear"));
@@ -124,5 +143,15 @@ async fn every_tool_dispatches_and_destructive_gate_is_enforced() {
         }
         let _ = connection.cancel().await;
         server.await.unwrap().unwrap();
+    }
+    let requests = upstream.received_requests().await.unwrap();
+    for (operation, expected) in [("createEvent", 2), ("updateEvents", 2), ("deleteEvents", 1)] {
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| request.url.path() == format!("/v2/{operation}"))
+                .count(),
+            expected
+        );
     }
 }
